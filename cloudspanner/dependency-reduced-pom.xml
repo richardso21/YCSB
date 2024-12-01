@@ -32,7 +32,7 @@
               </filters>
               <transformers>
                 <transformer>
-                  <mainClass>org.example.Main</mainClass>
+                  <mainClass>org.example.XodusClient</mainClass>
                 </transformer>
                 <transformer />
               </transformers>
