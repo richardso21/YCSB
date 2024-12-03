@@ -1,9 +1,13 @@
 package site.ycsb;
 
-import org.mapdb.*;
+import org.mapdb.BTreeMap;
 import org.mapdb.DB;
+import org.mapdb.DBMaker;
+import org.mapdb.Serializer;
 
+import java.io.*;
 import java.util.*;
+import java.util.stream.Collectors;
 
 /**
  * MapDB client for YCSB framework.
@@ -12,39 +16,48 @@ import java.util.*;
 public class MapDBClient extends site.ycsb.DB {
 
   private DB mapDB;
-  private HTreeMap<String, TreeMap<String, HashMap<String, byte[]>>> db;
+  private BTreeMap<String, byte[]> db;
 
   @Override
   public void init() throws DBException {
     this.mapDB = DBMaker
-        .fileDB("file.db")
+        .fileDB("./file.db")
         .closeOnJvmShutdown()
         .make();
 
-    db = mapDB.hashMap("db")
-        .keySerializer(Serializer.STRING)
-        .valueSerializer(Serializer.JAVA)
+    db = mapDB.treeMap("db")
+        .keySerializer(Serializer.JAVA)
+        .valueSerializer(Serializer.BYTE_ARRAY)
         .createOrOpen();
   }
 
   public void cleanup() throws DBException {
-    db.clear();
     db.close();
     mapDB.close();
   }
 
   @Override
   public Status read(String table, String key, Set<String> fields, Map<String, ByteIterator> result) {
-    Map<String, HashMap<String, byte[]>> collection = db.getOrDefault(table, new TreeMap<>());
+    String searchKey = table + ":" + key;
 
-    Map<String, byte[]> map = collection.get(key);
-
-    if (map == null) {
-      return Status.NOT_FOUND;
+    Map<String, ByteIterator> map;
+    try {
+      byte[] mapBytes = db.get(searchKey);
+      if (mapBytes == null) {
+        System.out.println("read " + table + " " +  key);
+        return Status.NOT_FOUND;
+      }
+      map = decodeMap(deserializeMap(mapBytes));
+    } catch (IOException | ClassNotFoundException e) {
+      throw new RuntimeException(e);
     }
 
-    for (String field : fields) {
-      result.put(field, new ByteArrayByteIterator(map.get(field)));
+    if (fields == null) {
+      result.putAll(map);
+    } else {
+      for (String field : fields) {
+        result.put(field, map.get(field));
+      }
     }
 
     return Status.OK;
@@ -56,28 +69,15 @@ public class MapDBClient extends site.ycsb.DB {
                      int recordcount,
                      Set<String> fields,
                      Vector<HashMap<String, ByteIterator>> result) {
-    TreeMap<String, HashMap<String, byte[]>> collection = db.getOrDefault(table, new TreeMap<>());
-    SortedMap<String, HashMap<String, byte[]>> map = collection.tailMap(startkey);
 
-    int counter = 0;
-    for (Map.Entry<String, HashMap<String, byte[]>> entry : map.entrySet()) {
-      HashMap<String, ByteIterator> filteredMap = new HashMap<>();
-      if (fields == null) {
-        for (Map.Entry<String, byte[]> entry1 : entry.getValue().entrySet()) {
-          filteredMap.put(entry1.getKey(), new ByteArrayByteIterator(entry1.getValue()));
-        }
-      } else {
-        for (Map.Entry<String, byte[]> entry1 : entry.getValue().entrySet()) {
-          if (fields.contains(entry1.getKey())) {
-            filteredMap.put(entry1.getKey(), new ByteArrayByteIterator(entry1.getValue()));
-          }
-        }
-      }
-      result.add(filteredMap);
+    Iterator<Map.Entry<String, byte[]>> cursor = db.tailMap(table + startkey).entrySet().iterator();
 
-      counter += 1;
-      if (counter == recordcount) {
-        break;
+    while (cursor.hasNext() && recordcount-- > 0) {
+      Map.Entry<String, byte[]> entry = cursor.next();
+      try {
+        result.add(tupleConvertFilter(decodeMap(deserializeMap(entry.getValue())), fields));
+      } catch (IOException | ClassNotFoundException e) {
+        throw new RuntimeException(e);
       }
     }
 
@@ -86,47 +86,101 @@ public class MapDBClient extends site.ycsb.DB {
 
   @Override
   public Status update(String table, String key, Map<String, ByteIterator> values) {
-    TreeMap<String, HashMap<String, byte[]>> collection = db.getOrDefault(table, new TreeMap<>());
+    String searchKey = table + ":" + key;
 
-    HashMap<String, byte[]> map = collection.get(key);
+    Map<String, ByteIterator> map;
+    try {
+      byte[] mapBytes = db.get(searchKey);
+      if (mapBytes == null) {
+        return insert(table, key, values);
+      } else {
+        map = decodeMap(deserializeMap(mapBytes));
+      }
+    } catch (IOException | ClassNotFoundException e) {
+      throw new RuntimeException(e);
+    }
 
     if (map == null) {
       return Status.NOT_FOUND;
     }
 
-    for (Map.Entry<String, ByteIterator> entry : values.entrySet()) {
-      map.put(entry.getKey(), entry.getValue().toArray());
+    map.putAll(values);
+
+    try {
+      db.put(searchKey, serializeMap(encodeMap(map)));
+    } catch (IOException e) {
+      throw new RuntimeException(e);
     }
-    collection.put(key, map);
-    db.put(table, collection);
 
     return Status.OK;
   }
 
   @Override
   public Status insert(String table, String key, Map<String, ByteIterator> values) {
-    TreeMap<String, HashMap<String, byte[]>> collection = db.getOrDefault(table, new TreeMap<>());
+    String searchKey = table + ":" + key;
 
-    HashMap<String, byte[]> map = collection.getOrDefault(key, new HashMap<>());
-
-    for (Map.Entry<String, ByteIterator> entry : values.entrySet()) {
-      map.put(entry.getKey(), entry.getValue().toArray());
+    try {
+      db.put(searchKey, serializeMap(encodeMap(values)));
+    } catch (IOException e) {
+      throw new RuntimeException(e);
     }
-    collection.put(key, map);
-    db.put(table, collection);
 
     return Status.OK;
   }
 
   @Override
   public Status delete(String table, String key) {
-    Map<String, HashMap<String, byte[]>> collection = db.getOrDefault(table, new TreeMap<>());
+    String searchKey = table + ":" + key;
 
-    Map<String, byte[]> removed = collection.remove(key);
+    byte[] removed = db.remove(searchKey);
 
     if (removed == null) {
       return Status.NOT_FOUND;
     }
     return Status.OK;
+  }
+
+  private Map<String, byte[]> encodeMap(Map<String, ByteIterator> map) {
+    return map.entrySet().stream()
+        .collect(Collectors.toMap(
+            Map.Entry::getKey,  // keep the original key
+            entry -> entry.getValue().toArray()  // apply processValue to the value
+        ));
+  }
+
+  private Map<String, ByteIterator> decodeMap(Map<String, byte[]> map) {
+    return map.entrySet().stream()
+        .collect(Collectors.toMap(
+            Map.Entry::getKey,  // keep the original key
+            entry -> new ByteArrayByteIterator(entry.getValue())  // apply processValue to the value
+        ));
+  }
+
+  public static byte[] serializeMap(Map<String, byte[]> map) throws IOException {
+    try (ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
+         ObjectOutputStream objectOutputStream = new ObjectOutputStream(byteArrayOutputStream)) {
+      objectOutputStream.writeObject(map);  // Serialize the map
+      return byteArrayOutputStream.toByteArray();  // Return byte array
+    }
+  }
+
+  public static Map<String, byte[]> deserializeMap(byte[] byteArray) throws IOException, ClassNotFoundException {
+    try (ByteArrayInputStream byteArrayInputStream = new ByteArrayInputStream(byteArray);
+         ObjectInputStream objectInputStream = new ObjectInputStream(byteArrayInputStream)) {
+      return (Map<String, byte[]>) objectInputStream.readObject();  // Deserialize the map
+    }
+  }
+
+  private HashMap<String, ByteIterator> tupleConvertFilter(Map<String, ByteIterator> input, Set<String> fields) {
+    HashMap<String, ByteIterator> result = new HashMap<>();
+    if (input == null) {
+      return result;
+    }
+    for (String key: input.keySet()) {
+      if (fields == null || fields.contains(key)) {
+        result.put(key, input.get(key));
+      }
+    }
+    return result;
   }
 }

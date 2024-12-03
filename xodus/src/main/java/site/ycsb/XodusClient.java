@@ -6,6 +6,7 @@ import jetbrains.exodus.ByteIterable;
 import jetbrains.exodus.bindings.StringBinding;
 import jetbrains.exodus.env.*;
 import jetbrains.exodus.util.ByteIterableUtil;
+
 import java.io.*;
 
 import java.util.*;
@@ -13,16 +14,24 @@ import java.util.stream.Collectors;
 
 import static jetbrains.exodus.env.StoreConfig.WITHOUT_DUPLICATES_WITH_PREFIXING;
 
-public class XodusClient extends DB{
+/**
+ * Xodus client for YCSB framework.
+ *
+ */
+public class XodusClient extends DB {
 
-  Environment environment;
-  Store store;
+  private Environment environment;
+  private Store store;
+
   @Override
-  public void init(){
+  public void init() {
     environment = Environments.newInstance("./");
-    store = environment.computeInTransaction(txn -> environment.openStore("MyStore", WITHOUT_DUPLICATES_WITH_PREFIXING, txn));
+    store = environment.computeInTransaction(
+        txn -> environment.openStore("MyStore", WITHOUT_DUPLICATES_WITH_PREFIXING, txn)
+    );
 
   }
+
   @Override
   public Status read(String table, String key, Set<String> fields, Map<String, ByteIterator> result) {
     Transaction txn = environment.beginReadonlyTransaction();
@@ -32,7 +41,7 @@ public class XodusClient extends DB{
 
     ByteIterable byteIterable = store.get(txn, keyByteIterable);
 
-    if (byteIterable == null){
+    if (byteIterable == null) {
       return Status.NOT_FOUND;
     }
 
@@ -50,7 +59,11 @@ public class XodusClient extends DB{
   }
 
   @Override
-  public Status scan(String table, String startkey, int recordcount, Set<String> fields, Vector<HashMap<String, ByteIterator>> result) {
+  public Status scan(String table,
+                     String startkey,
+                     int recordcount,
+                     Set<String> fields,
+                     Vector<HashMap<String, ByteIterator>> result) {
 
     Transaction txn = environment.beginReadonlyTransaction();
     String keyPrefix = table + ":" + startkey;
@@ -74,7 +87,7 @@ public class XodusClient extends DB{
           result.add(tupleConvertFilter(retrievedFields, fields));
 
 
-        } while(cursor.getNext() && recordcount-- > 0);
+        } while (cursor.getNext() && recordcount-- > 0);
       }
     } catch (IOException | ClassNotFoundException e) {
       e.printStackTrace();
@@ -100,15 +113,14 @@ public class XodusClient extends DB{
   @Override
   public Status insert(String table, String key, Map<String, ByteIterator> values) {
     environment.executeInTransaction(txn -> {
-          String keyPrefix = table + ":" + key;
-          ByteIterable keyByteIterable = StringBinding.stringToEntry(keyPrefix);
-          try {
-            store.put(txn, keyByteIterable, new ArrayByteIterable(serializeMap(encodeMap(values))));
-          } catch (IOException e) {
-            throw new RuntimeException(e);
-          }
+        String keyPrefix = table + ":" + key;
+        ByteIterable keyByteIterable = StringBinding.stringToEntry(keyPrefix);
+        try {
+          store.put(txn, keyByteIterable, new ArrayByteIterable(serializeMap(encodeMap(values))));
+        } catch (IOException e) {
+          throw new RuntimeException(e);
         }
-    );
+      });
 
     return Status.OK;
   }
@@ -174,7 +186,7 @@ public class XodusClient extends DB{
     if (input == null) {
       return result;
     }
-    for (String key: input.keySet()) {
+    for (String key : input.keySet()) {
       if (fields == null || fields.contains(key)) {
         result.put(key, input.get(key));
       }
