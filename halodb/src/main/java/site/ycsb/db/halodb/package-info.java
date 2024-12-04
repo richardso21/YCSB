@@ -18,5 +18,5 @@
 /**
  * The YCSB binding for <a href="http://mapr.com/maprdb/">MapR-DB</a>.
  */
-package site.ycsb.db.halodb;
+package site.ycsb;
 
