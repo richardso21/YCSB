@@ -206,8 +206,9 @@ LICENSE file.
     <module>tablestore</module>
     <module>voltdb</module>
     <module>zookeeper</module>
-      <module>mapdb</module>
-      <module>xodus</module>
+    <module>mapdb</module>
+    <module>xodus</module>
+    <module>halodb</module>
   </modules>
 
   <build>
