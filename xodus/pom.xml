@@ -9,7 +9,7 @@
     <relativePath>../binding-parent</relativePath>
   </parent>
 
-  <artifactId>xodus</artifactId>
+  <artifactId>xodus-binding</artifactId>
 
   <dependencies>
     <dependency>
