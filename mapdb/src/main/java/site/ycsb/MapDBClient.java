@@ -21,7 +21,7 @@ public class MapDBClient extends site.ycsb.DB {
   @Override
   public void init() throws DBException {
     this.mapDB = DBMaker
-        .fileDB("./mapdb.db")
+        .fileDB("/tmp/mapdb-output-ycsb.db")
         .closeOnJvmShutdown()
         .make();
 

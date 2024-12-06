@@ -25,7 +25,7 @@ public class XodusClient extends DB {
 
   @Override
   public void init() {
-    environment = Environments.newInstance("./");
+    environment = Environments.newInstance("/tmp/xodus-output-ycsb");
     store = environment.computeInTransaction(
         txn -> environment.openStore("MyStore", WITHOUT_DUPLICATES_WITH_PREFIXING, txn)
     );

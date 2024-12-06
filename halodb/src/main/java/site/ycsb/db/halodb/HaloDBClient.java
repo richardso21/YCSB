@@ -22,7 +22,7 @@ public class HaloDBClient extends site.ycsb.DB {
   public void init() throws DBException {
     HaloDBOptions options = new HaloDBOptions();
     try {
-      this.haloDB = haloDB.open("halodb/output", options);
+      this.haloDB = haloDB.open("/tmp/halodb-output-ycsb", options);
     } catch (HaloDBException e) {
       return;
     }
